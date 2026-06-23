@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api, getSession } from '../api';
-import { useToast } from '../components/Toast';
+import { useToast } from '../components/ui/Toast';
 
 const NAV = [
     { key: 'dashboard', label: 'Dashboard',  Icon: LayoutDashboard },

@@ -296,17 +296,24 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const ctx = {
-    toast: {
-      success: (title, message) => push('success', title, message),
-      error: (title, message) => push('error', title, message),
-      warning: (title, message) => push('warning', title, message),
-      info: (title, message) => push('info', title, message),
-    },
+  const toastFn = useCallback((message, type = 'info') => {
+    push(type, message, '');
+  }, [push]);
+
+  toastFn.success = useCallback((title, message) => push('success', title, message), [push]);
+  toastFn.error   = useCallback((title, message) => push('error', title, message), [push]);
+  toastFn.warning = useCallback((title, message) => push('warning', title, message), [push]);
+  toastFn.info    = useCallback((title, message) => push('info', title, message), [push]);
+
+  toastFn.toast = {
+    success: toastFn.success,
+    error: toastFn.error,
+    warning: toastFn.warning,
+    info: toastFn.info,
   };
 
   return (
-    <Ctx.Provider value={ctx}>
+    <Ctx.Provider value={toastFn}>
       {children}
       <div
         aria-label="Notifications"

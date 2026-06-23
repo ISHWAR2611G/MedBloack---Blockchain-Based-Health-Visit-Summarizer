@@ -38,12 +38,21 @@ function Protected({ role, children }) {
   return children;
 }
 
-function App() {
+function NavigateToDefault() {
   const { user } = getSession();
-
-  // Redirect logged-in users away from login page
   const defaultPath = user ? `/${user.role}` : '/login';
+  return <Navigate to={defaultPath} replace />;
+}
 
+function LoginRoute() {
+  const { user } = getSession();
+  if (user) {
+    return <Navigate to={`/${user.role}`} replace />;
+  }
+  return <Login />;
+}
+
+function App() {
   return (
     <ToastProvider>
       <LoadingProvider>
@@ -52,9 +61,9 @@ function App() {
           <RouteProgress />
           <Routes>
             {/* Root — redirect based on auth state */}
-            <Route path="/" element={<Navigate to={defaultPath} replace />} />
+            <Route path="/" element={<NavigateToDefault />} />
             {/* Login — redirect away if already signed in */}
-            <Route path="/login" element={user ? <Navigate to={defaultPath} replace /> : <Login />} />
+            <Route path="/login" element={<LoginRoute />} />
             {/* Protected portals */}
             <Route path="/admin"    element={<Protected role="admin"><AdminPortal /></Protected>} />
             <Route path="/hospital" element={<Protected role="hospital"><HospitalPortal /></Protected>} />

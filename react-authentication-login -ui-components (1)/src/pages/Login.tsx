@@ -1,5 +1,4 @@
-/* MedBlock Login — Enhanced UI
- * Ported from Login Project's Login.tsx to plain JSX.
+/* ENHANCEMENT: MedBlock Login — enhanced UI layer
  * Original logic preserved. Enhancements are clearly marked with ENHANCEMENT comments.
  */
 import { useEffect, useState } from 'react';
@@ -21,7 +20,7 @@ import {
   Lock,
   Keyboard,
 } from 'lucide-react';
-import { api, saveSession } from '../api';
+import { api, saveSession, type User as ApiUser } from '../api';
 import { useToast } from '../components/ui/Toast';
 import { CapsLockWarning, PasswordStrength } from '../components/ui/PasswordStrength';
 import { ConnectionStatus } from '../components/ui/ConnectionStatus';
@@ -31,20 +30,22 @@ import { useLoading } from '../components/ui/LoadingContext';
 /* ENHANCEMENT: Trust badges for brand confidence */
 const TRUST_BADGES = [
   { icon: 'fa-solid fa-shield-halved', label: 'HIPAA-Ready' },
-  { icon: 'fa-solid fa-link',          label: 'On-Chain Audit' },
-  { icon: 'fa-solid fa-lock',          label: 'AES-256 Encryption' },
-  { icon: 'fa-solid fa-fingerprint',   label: 'Zero-Knowledge ID' },
+  { icon: 'fa-solid fa-link', label: 'On-Chain Audit' },
+  { icon: 'fa-solid fa-lock', label: 'AES-256 Encryption' },
+  { icon: 'fa-solid fa-fingerprint', label: 'Zero-Knowledge ID' },
 ];
 
 const ROLES = [
-  { key: 'patient',  label: 'Patient',  Icon: User,        grad: 'var(--patient-grad)' },
-  { key: 'doctor',   label: 'Doctor',   Icon: Stethoscope, grad: 'var(--doctor-grad)' },
-  { key: 'hospital', label: 'Hospital', Icon: Hospital,    grad: 'var(--hospital-grad)' },
-  { key: 'admin',    label: 'Admin',    Icon: Shield,      grad: 'var(--admin-grad)' },
-];
+  { key: 'patient', label: 'Patient', Icon: User, grad: 'var(--patient-grad)' },
+  { key: 'doctor', label: 'Doctor', Icon: Stethoscope, grad: 'var(--doctor-grad)' },
+  { key: 'hospital', label: 'Hospital', Icon: Hospital, grad: 'var(--hospital-grad)' },
+  { key: 'admin', label: 'Admin', Icon: Shield, grad: 'var(--admin-grad)' },
+] as const;
+
+type RoleKey = (typeof ROLES)[number]['key'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function Alert({ msg, type = 'error' }) {
+function Alert({ msg, type = 'error' }: { msg: string; type?: string }) {
   if (!msg) return null;
   return <div className={`alert alert-${type}`}>{msg}</div>;
 }
@@ -58,13 +59,22 @@ function PasswordInput({
   required = true,
   showStrength = false,
   onCaps = () => {},
+}: {
+  id: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  placeholder?: string;
+  label?: string;
+  required?: boolean;
+  showStrength?: boolean;
+  onCaps?: (active: boolean) => void;
 }) {
   const [show, setShow] = useState(false);
   const [caps, setCaps] = useState(false);
 
   // ENHANCEMENT: Detect caps lock via keyboard event
-  const handleKey = (e) => {
-    const c = e.getModifierState?.('CapsLock') ?? false;
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const c = (e as any).getModifierState?.('CapsLock') ?? false;
     setCaps(c);
     onCaps(c);
   };
@@ -92,15 +102,15 @@ function PasswordInput({
           aria-label={show ? 'Hide password' : 'Show password'}
           onClick={() => setShow((s) => !s)}
           style={{
-            position:  'absolute',
-            right:     10,
-            top:       '50%',
+            position: 'absolute',
+            right: 10,
+            top: '50%',
             transform: 'translateY(-50%)',
             background: 'none',
-            border:    'none',
-            cursor:    'pointer',
-            color:     'var(--muted)',
-            padding:   2,
+            border: 'none',
+            cursor: 'pointer',
+            color: 'var(--muted)',
+            padding: 2,
           }}
         >
           {show ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -122,7 +132,19 @@ async function connectMetaMask() {
 }
 
 // ── Email Sign In — role is REQUIRED for RBAC enforcement ────────────────────
-function EmailSignIn({ role, loading, setLoading, setError, error }) {
+function EmailSignIn({
+  role,
+  loading,
+  setLoading,
+  setError,
+  error,
+}: {
+  role: RoleKey;
+  loading: boolean;
+  setLoading: (b: boolean) => void;
+  setError: (s: string) => void;
+  error: string;
+}) {
   const [email, setEmail] = useState('');
   const { startLoading, stopLoading } = useLoading();
   const [password, setPassword] = useState('');
@@ -131,11 +153,11 @@ function EmailSignIn({ role, loading, setLoading, setError, error }) {
   const { toast } = useToast();
 
   // Demo credentials per role
-  const DEMO_CREDS = {
-    patient:  { email: 'john.doe@example.com',           password: 'Admin@1234' },
-    doctor:   { email: 'dr.sarah.connor@citygeneral.com', password: 'Admin@1234' },
-    hospital: { email: 'admin@citygeneral.com',          password: 'Admin@1234' },
-    admin:    { email: 'admin@medblock.io',              password: 'Admin@1234' },
+  const DEMO_CREDS: Record<RoleKey, { email: string; password: string }> = {
+    patient: { email: 'john.doe@example.com', password: 'Admin@1234' },
+    doctor: { email: 'dr.sarah.connor@citygeneral.com', password: 'Admin@1234' },
+    hospital: { email: 'admin@citygeneral.com', password: 'Admin@1234' },
+    admin: { email: 'admin@medblock.io', password: 'Admin@1234' },
   };
 
   const fillDemo = () => {
@@ -148,18 +170,18 @@ function EmailSignIn({ role, loading, setLoading, setError, error }) {
     }
   };
 
-  const submit = async (e) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     startLoading();
     try {
       // role is sent to backend so it can reject cross-role logins
-      const data = await api.post('/auth/login', { email, password, role });
+      const data = await api.post('/auth/login', { email, password, role }) as { token: string; user: ApiUser };
       saveSession(data.token, data.user);
       toast.success('Welcome back', `Signed in as ${data.user.email}`);
       navigate(`/${data.user.role}`);
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
       toast.error('Sign in failed', err.message);
     } finally {
@@ -194,11 +216,7 @@ function EmailSignIn({ role, loading, setLoading, setError, error }) {
           <span className="mb-check" />
           <span>Remember me on this device</span>
         </label>
-        <button
-          type="button"
-          className="mb-link"
-          onClick={() => toast.info('Password reset', 'Reset links are sent to your email.')}
-        >
+        <button type="button" className="mb-link" onClick={() => toast.info('Password reset', 'Reset links are sent to your email.')}>
           Forgot password?
         </button>
       </div>
@@ -212,9 +230,13 @@ function EmailSignIn({ role, loading, setLoading, setError, error }) {
         aria-busy={loading}
       >
         {loading ? (
-          <><span className="mb-spin-dot" /> Authenticating…</>
+          <>
+            <span className="mb-spin-dot" /> Authenticating…
+          </>
         ) : (
-          <><LogIn size={15} /> Sign In with Email</>
+          <>
+            <LogIn size={15} /> Sign In with Email
+          </>
         )}
       </button>
 
@@ -228,21 +250,21 @@ function EmailSignIn({ role, loading, setLoading, setError, error }) {
         type="button"
         onClick={fillDemo}
         style={{
-          marginTop:     10,
-          width:         '100%',
+          marginTop: 10,
+          width: '100%',
           justifyContent: 'center',
-          display:       'flex',
-          alignItems:    'center',
-          gap:           5,
-          background:    'transparent',
-          border:        '1px dashed rgba(255,255,255,0.12)',
-          borderRadius:  8,
-          padding:       '7px',
-          cursor:        'pointer',
-          color:         'var(--muted)',
-          fontSize:      '0.78rem',
-          fontFamily:    'inherit',
-          transition:    'all 0.15s',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          background: 'transparent',
+          border: '1px dashed rgba(255,255,255,0.12)',
+          borderRadius: 8,
+          padding: '7px',
+          cursor: 'pointer',
+          color: 'var(--muted)',
+          fontSize: '0.78rem',
+          fontFamily: 'inherit',
+          transition: 'all 0.15s',
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)';
@@ -260,7 +282,19 @@ function EmailSignIn({ role, loading, setLoading, setError, error }) {
 }
 
 // ── MetaMask Sign In — role is passed for RBAC enforcement ──────────────────
-function WalletSignIn({ role, loading, setLoading, setError, error }) {
+function WalletSignIn({
+  role,
+  loading,
+  setLoading,
+  setError,
+  error,
+}: {
+  role: RoleKey;
+  loading: boolean;
+  setLoading: (b: boolean) => void;
+  setError: (s: string) => void;
+  error: string;
+}) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { startLoading, stopLoading } = useLoading();
@@ -273,11 +307,11 @@ function WalletSignIn({ role, loading, setLoading, setError, error }) {
       const address = await connectMetaMask();
       toast.info('Wallet connected', `${address.slice(0, 6)}…${address.slice(-4)}`);
       // role is sent so backend can reject cross-role wallet logins
-      const data = await api.post('/auth/login/wallet', { address, role });
+      const data = await api.post('/auth/login/wallet', { address, role }) as { token: string; user: ApiUser };
       saveSession(data.token, data.user);
       toast.success('Signed in', 'Wallet-based authentication verified on-chain.');
       navigate(`/${data.user.role}`);
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
       toast.error('Wallet sign-in failed', err.message);
     } finally {
@@ -291,14 +325,14 @@ function WalletSignIn({ role, loading, setLoading, setError, error }) {
       <Alert msg={error} />
       <div
         style={{
-          width:          60,
-          height:         60,
-          borderRadius:   '50%',
-          background:     'rgba(245,158,11,0.12)',
-          display:        'flex',
-          alignItems:     'center',
+          width: 60,
+          height: 60,
+          borderRadius: '50%',
+          background: 'rgba(245,158,11,0.12)',
+          display: 'flex',
+          alignItems: 'center',
           justifyContent: 'center',
-          margin:         '0 auto 14px',
+          margin: '0 auto 14px',
         }}
       >
         <Wallet size={28} color="var(--warning)" />
@@ -321,23 +355,23 @@ function WalletSignIn({ role, loading, setLoading, setError, error }) {
 }
 
 // ── Patient Sign Up ───────────────────────────────────────────────────────────
-function PatientSignUp({ setError, error }) {
+function PatientSignUp({ setError, error }: { setError: (s: string) => void; error: string }) {
   const { startLoading, stopLoading } = useLoading();
   const [form, setForm] = useState({
-    firstName:       '',
-    lastName:        '',
-    email:           '',
-    password:        '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
     confirmPassword: '',
-    phone:           '',
-    dateOfBirth:     '',
+    phone: '',
+    dateOfBirth: '',
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const f = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }));
+  const f = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((p) => ({ ...p, [key]: e.target.value }));
 
-  const submit = async (e) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (form.password !== form.confirmPassword) {
@@ -354,17 +388,17 @@ function PatientSignUp({ setError, error }) {
     startLoading();
     try {
       const data = await api.post('/auth/register', {
-        firstName:   form.firstName,
-        lastName:    form.lastName,
-        email:       form.email,
-        password:    form.password,
-        phone:       form.phone,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        password: form.password,
+        phone: form.phone,
         dateOfBirth: form.dateOfBirth,
-      });
+      }) as { token: string; user: ApiUser };
       saveSession(data.token, data.user);
       toast.success('Account created', `Welcome to MedBlock, ${form.firstName}!`);
       navigate('/patient');
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
       toast.error('Registration failed', err.message);
     } finally {
@@ -377,13 +411,28 @@ function PatientSignUp({ setError, error }) {
     <form onSubmit={submit}>
       <Alert msg={error} />
       <div className="grid-2">
-        <div className="form-group"><label>First Name *</label><input className="input" required placeholder="John" value={form.firstName} onChange={f('firstName')} /></div>
-        <div className="form-group"><label>Last Name</label><input className="input" placeholder="Doe" value={form.lastName} onChange={f('lastName')} /></div>
+        <div className="form-group">
+          <label>First Name *</label>
+          <input className="input" required placeholder="John" value={form.firstName} onChange={f('firstName')} />
+        </div>
+        <div className="form-group">
+          <label>Last Name</label>
+          <input className="input" placeholder="Doe" value={form.lastName} onChange={f('lastName')} />
+        </div>
       </div>
-      <div className="form-group"><label>Email Address *</label><input className="input" type="email" required placeholder="you@example.com" value={form.email} onChange={f('email')} /></div>
+      <div className="form-group">
+        <label>Email Address *</label>
+        <input className="input" type="email" required placeholder="you@example.com" value={form.email} onChange={f('email')} />
+      </div>
       <div className="grid-2">
-        <div className="form-group"><label>Phone</label><input className="input" type="tel" value={form.phone} onChange={f('phone')} /></div>
-        <div className="form-group"><label>Date of Birth</label><input className="input" type="date" value={form.dateOfBirth} onChange={f('dateOfBirth')} /></div>
+        <div className="form-group">
+          <label>Phone</label>
+          <input className="input" type="tel" value={form.phone} onChange={f('phone')} />
+        </div>
+        <div className="form-group">
+          <label>Date of Birth</label>
+          <input className="input" type="date" value={form.dateOfBirth} onChange={f('dateOfBirth')} />
+        </div>
       </div>
       <PasswordInput id="reg-pass" label="Password *" value={form.password} onChange={f('password')} placeholder="Min. 6 chars" showStrength />
       <PasswordInput id="reg-confirm" label="Confirm Password *" value={form.confirmPassword} onChange={f('confirmPassword')} />
@@ -394,53 +443,67 @@ function PatientSignUp({ setError, error }) {
         disabled={loading}
         aria-busy={loading}
       >
-        {loading ? <><span className="mb-spin-dot" /> Creating Account…</> : <><UserPlus size={15} /> Create Patient Account</>}
+        {loading ? (
+          <>
+            <span className="mb-spin-dot" /> Creating Account…
+          </>
+        ) : (
+          <>
+            <UserPlus size={15} /> Create Patient Account
+          </>
+        )}
       </button>
     </form>
   );
 }
 
 // ── Hospital Sign Up ──────────────────────────────────────────────────────────
-function HospitalSignUp({ setError, error }) {
+function HospitalSignUp({ setError, error }: { setError: (s: string) => void; error: string }) {
   const { startLoading, stopLoading } = useLoading();
   const [form, setForm] = useState({
-    hospitalName:   '',
-    email:          '',
-    password:       '',
+    hospitalName: '',
+    email: '',
+    password: '',
     confirmPassword: '',
-    phone:          '',
-    address:        '',
-    city:           '',
-    state:          '',
+    phone: '',
+    address: '',
+    city: '',
+    state: '',
     registrationId: '',
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const f = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }));
+  const f = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((p) => ({ ...p, [key]: e.target.value }));
 
-  const submit = async (e) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
-    if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (form.password !== form.confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (form.password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
     setLoading(true);
     startLoading();
     try {
       const data = await api.post('/auth/register-hospital', {
-        hospitalName:   form.hospitalName,
-        email:          form.email,
-        password:       form.password,
-        phone:          form.phone,
-        address:        form.address,
-        city:           form.city,
-        state:          form.state,
+        hospitalName: form.hospitalName,
+        email: form.email,
+        password: form.password,
+        phone: form.phone,
+        address: form.address,
+        city: form.city,
+        state: form.state,
         registrationId: form.registrationId,
-      });
+      }) as { token: string; user: ApiUser };
       saveSession(data.token, data.user);
       toast.success('Hospital registered', `${form.hospitalName} is now live on MedBlock.`);
       navigate('/hospital');
-    } catch (err) {
+    } catch (err: any) {
       setError(err.message);
       toast.error('Registration failed', err.message);
     } finally {
@@ -452,17 +515,38 @@ function HospitalSignUp({ setError, error }) {
   return (
     <form onSubmit={submit}>
       <Alert msg={error} />
-      <div className="form-group"><label>Hospital / Clinic Name *</label><input className="input" required placeholder="e.g. City General Hospital" value={form.hospitalName} onChange={f('hospitalName')} /></div>
-      <div className="form-group"><label>Official Email *</label><input className="input" type="email" required placeholder="admin@yourhospital.com" value={form.email} onChange={f('email')} /></div>
-      <div className="grid-2">
-        <div className="form-group"><label>Phone</label><input className="input" type="tel" value={form.phone} onChange={f('phone')} /></div>
-        <div className="form-group"><label>Registration / License ID</label><input className="input" placeholder="HOSP-12345" value={form.registrationId} onChange={f('registrationId')} /></div>
+      <div className="form-group">
+        <label>Hospital / Clinic Name *</label>
+        <input className="input" required placeholder="e.g. City General Hospital" value={form.hospitalName} onChange={f('hospitalName')} />
+      </div>
+      <div className="form-group">
+        <label>Official Email *</label>
+        <input className="input" type="email" required placeholder="admin@yourhospital.com" value={form.email} onChange={f('email')} />
       </div>
       <div className="grid-2">
-        <div className="form-group"><label>City</label><input className="input" value={form.city} onChange={f('city')} /></div>
-        <div className="form-group"><label>State</label><input className="input" value={form.state} onChange={f('state')} /></div>
+        <div className="form-group">
+          <label>Phone</label>
+          <input className="input" type="tel" value={form.phone} onChange={f('phone')} />
+        </div>
+        <div className="form-group">
+          <label>Registration / License ID</label>
+          <input className="input" placeholder="HOSP-12345" value={form.registrationId} onChange={f('registrationId')} />
+        </div>
       </div>
-      <div className="form-group"><label>Address</label><input className="input" placeholder="Street address" value={form.address} onChange={f('address')} /></div>
+      <div className="grid-2">
+        <div className="form-group">
+          <label>City</label>
+          <input className="input" value={form.city} onChange={f('city')} />
+        </div>
+        <div className="form-group">
+          <label>State</label>
+          <input className="input" value={form.state} onChange={f('state')} />
+        </div>
+      </div>
+      <div className="form-group">
+        <label>Address</label>
+        <input className="input" placeholder="Street address" value={form.address} onChange={f('address')} />
+      </div>
       <PasswordInput id="hosp-pass" label="Admin Password *" value={form.password} onChange={f('password')} placeholder="Min. 6 chars" showStrength />
       <PasswordInput id="hosp-confirm" label="Confirm Password *" value={form.confirmPassword} onChange={f('confirmPassword')} />
       <button
@@ -472,7 +556,15 @@ function HospitalSignUp({ setError, error }) {
         disabled={loading}
         aria-busy={loading}
       >
-        {loading ? <><span className="mb-spin-dot" /> Registering…</> : <><Hospital size={15} /> Register Hospital</>}
+        {loading ? (
+          <>
+            <span className="mb-spin-dot" /> Registering…
+          </>
+        ) : (
+          <>
+            <Hospital size={15} /> Register Hospital
+          </>
+        )}
       </button>
     </form>
   );
@@ -495,16 +587,16 @@ function DoctorSignupInfo() {
           <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8, fontSize: '0.82rem', color: 'var(--muted)' }}>
             <span
               style={{
-                minWidth:       20,
-                height:         20,
-                background:     'var(--doctor-grad)',
-                borderRadius:   '50%',
-                display:        'flex',
-                alignItems:     'center',
+                minWidth: 20,
+                height: 20,
+                background: 'var(--doctor-grad)',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
-                fontSize:       '0.7rem',
-                color:          '#fff',
-                fontWeight:     700,
+                fontSize: '0.7rem',
+                color: '#fff',
+                fontWeight: 700,
               }}
             >
               {i + 1}
@@ -547,11 +639,9 @@ function AdminInfo() {
 }
 
 // ── RoleBadge ─────────────────────────────────────────────────────────────────
-function RoleBadge({ role: r, mode, authMethod }) {
+function RoleBadge({ role: r, mode, authMethod }: { role: (typeof ROLES)[number]; mode: string; authMethod: string }) {
   const subtitle =
-    r.key === 'doctor'
-      ? authMethod === 'wallet' ? 'MetaMask Wallet Authentication' : 'Email & Password'
-      : 'Email & Password';
+    r.key === 'doctor' ? (authMethod === 'wallet' ? 'MetaMask Wallet Authentication' : 'Email & Password') : 'Email & Password';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
       <div style={{ width: 36, height: 36, borderRadius: 10, background: r.grad, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -568,32 +658,42 @@ function RoleBadge({ role: r, mode, authMethod }) {
 }
 
 // ── Auth Method Toggle (Email vs Wallet) ──────────────────────────────────────
-function AuthMethodToggle({ value, onChange, grad }) {
+function AuthMethodToggle({
+  value,
+  onChange,
+  grad,
+}: {
+  value: string;
+  onChange: (m: 'email' | 'wallet') => void;
+  grad: string;
+}) {
   return (
     <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 8, padding: 3, marginBottom: 14 }}>
-      {[
-        ['email',  <><Mail size={12} /> Email</>],
-        ['wallet', <><Wallet size={12} /> MetaMask</>],
-      ].map(([key, label]) => (
+      {(
+        [
+          ['email', <> <Mail size={12} /> Email</>],
+          ['wallet', <> <Wallet size={12} /> MetaMask</>],
+        ] as const
+      ).map(([key, label]) => (
         <button
           key={key}
           type="button"
           onClick={() => onChange(key)}
           style={{
-            flex:           1,
-            padding:        '6px 0',
-            borderRadius:   6,
-            border:         'none',
-            cursor:         'pointer',
-            fontSize:       '0.8rem',
-            fontWeight:     600,
-            display:        'flex',
-            alignItems:     'center',
+            flex: 1,
+            padding: '6px 0',
+            borderRadius: 6,
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
             justifyContent: 'center',
-            gap:            5,
-            background:     value === key ? grad : 'transparent',
-            color:          value === key ? '#fff' : 'var(--muted)',
-            transition:     'all 0.2s',
+            gap: 5,
+            background: value === key ? grad : 'transparent',
+            color: value === key ? '#fff' : 'var(--muted)',
+            transition: 'all 0.2s',
           }}
         >
           {label}
@@ -605,9 +705,9 @@ function AuthMethodToggle({ value, onChange, grad }) {
 
 // ── Main Login Page ───────────────────────────────────────────────────────────
 export default function Login() {
-  const [role, setRole] = useState('patient');
-  const [mode, setMode] = useState('login');       // 'login' | 'signup'
-  const [authMethod, setAuthMethod] = useState('email');  // 'email' | 'wallet'
+  const [role, setRole] = useState<RoleKey>('patient');
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [authMethod, setAuthMethod] = useState<'email' | 'wallet'>('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
@@ -619,15 +719,15 @@ export default function Login() {
     return () => clearTimeout(t);
   }, []);
 
-  const selectedRole = ROLES.find((r) => r.key === role);
-  const switchRole = (r) => {
+  const selectedRole = ROLES.find((r) => r.key === role)!;
+  const switchRole = (r: RoleKey) => {
     setRole(r);
     setMode('login');
     setAuthMethod('email');
     setError('');
     toast.info(`Switched to ${r} portal`, 'Sign in or register to continue.');
   };
-  const switchMode = (m) => {
+  const switchMode = (m: 'login' | 'signup') => {
     setMode(m);
     setError('');
   };
@@ -641,7 +741,7 @@ export default function Login() {
   useEffect(() => {
     const el = document.getElementById('mb-live-region');
     if (el) el.textContent = `Showing ${selectedRole.label} ${mode} form`;
-  }, [role, mode, selectedRole]);
+  }, [role, mode, selectedRole.label]);
 
   // ENHANCEMENT: Skeleton splash screen before UI is ready
   if (!ready) return <SkeletonLogin />;
@@ -658,7 +758,7 @@ export default function Login() {
       {/* ENHANCEMENT: Screen-reader live region */}
       <div id="mb-live-region" aria-live="polite" aria-atomic="true" className="sr-only" />
 
-      {/* ENHANCEMENT: Live connection status (bottom-left) */}
+      {/* ENHANCEMENT: Top connection status bar */}
       <ConnectionStatus />
 
       <div className="login-card anim-slide-up" id="main-login">
@@ -668,15 +768,15 @@ export default function Login() {
             <div
               className="logo-icon"
               style={{
-                width:      44,
-                height:     44,
+                width: 44,
+                height: 44,
                 borderRadius: 12,
                 background: 'var(--admin-grad)',
-                fontSize:   '1.3rem',
-                display:    'flex',
+                fontSize: '1.3rem',
+                display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow:  '0 6px 18px rgba(99,102,241,0.4)',
+                boxShadow: '0 6px 18px rgba(99,102,241,0.4)',
               }}
             >
               <Fingerprint size={22} color="#fff" />
@@ -687,9 +787,15 @@ export default function Login() {
 
           {/* ENHANCEMENT: Feature highlights strip */}
           <div className="mb-feature-strip">
-            <span><Sparkles size={11} /> Decentralized Storage</span>
-            <span><Lock size={11} /> End-to-End Encrypted</span>
-            <span><Shield size={11} /> Auditable Access</span>
+            <span>
+              <Sparkles size={11} /> Decentralized Storage
+            </span>
+            <span>
+              <Lock size={11} /> End-to-End Encrypted
+            </span>
+            <span>
+              <Shield size={11} /> Auditable Access
+            </span>
           </div>
         </div>
 
@@ -709,61 +815,77 @@ export default function Login() {
           ))}
         </div>
 
-        {/* ── Sign In / Sign Up toggle (Patient & Hospital) ── */}
+        {/* ── Sign In / Sign Up toggle ── */}
         {hasSignup && (
           <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 10, padding: 3, marginBottom: 14 }}>
-            {['login', 'signup'].map((m) => (
+            {(['login', 'signup'] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => switchMode(m)}
                 style={{
-                  flex:           1,
-                  padding:        '7px 0',
-                  borderRadius:   8,
-                  border:         'none',
-                  cursor:         'pointer',
-                  fontSize:       '0.84rem',
-                  fontWeight:     600,
-                  display:        'flex',
-                  alignItems:     'center',
+                  flex: 1,
+                  padding: '7px 0',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
                   justifyContent: 'center',
-                  gap:            5,
-                  background:     mode === m ? selectedRole.grad : 'transparent',
-                  color:          mode === m ? '#fff' : 'var(--muted)',
-                  transition:     'all 0.2s',
+                  gap: 5,
+                  background: mode === m ? selectedRole.grad : 'transparent',
+                  color: mode === m ? '#fff' : 'var(--muted)',
+                  transition: 'all 0.2s',
                 }}
               >
-                {m === 'login' ? <><LogIn size={13} /> Sign In</> : <><UserPlus size={13} /> Sign Up</>}
+                {m === 'login' ? (
+                  <>
+                    <LogIn size={13} /> Sign In
+                  </>
+                ) : (
+                  <>
+                    <UserPlus size={13} /> Sign Up
+                  </>
+                )}
               </button>
             ))}
           </div>
         )}
 
-        {/* ── Doctor: Sign In / Sign Up Info tabs ── */}
+        {/* ── Doctor: Sign In / Sign Up tabs ── */}
         {role === 'doctor' && (
           <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 10, padding: 3, marginBottom: 14 }}>
-            {['login', 'signup'].map((m) => (
+            {(['login', 'signup'] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => switchMode(m)}
                 style={{
-                  flex:           1,
-                  padding:        '7px 0',
-                  borderRadius:   8,
-                  border:         'none',
-                  cursor:         'pointer',
-                  fontSize:       '0.84rem',
-                  fontWeight:     600,
-                  display:        'flex',
-                  alignItems:     'center',
+                  flex: 1,
+                  padding: '7px 0',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
                   justifyContent: 'center',
-                  gap:            5,
-                  background:     mode === m ? selectedRole.grad : 'transparent',
-                  color:          mode === m ? '#fff' : 'var(--muted)',
-                  transition:     'all 0.2s',
+                  gap: 5,
+                  background: mode === m ? selectedRole.grad : 'transparent',
+                  color: mode === m ? '#fff' : 'var(--muted)',
+                  transition: 'all 0.2s',
                 }}
               >
-                {m === 'login' ? <><LogIn size={13} /> Sign In</> : <><UserPlus size={13} /> Sign Up Info</>}
+                {m === 'login' ? (
+                  <>
+                    <LogIn size={13} /> Sign In
+                  </>
+                ) : (
+                  <>
+                    <UserPlus size={13} /> Sign Up Info
+                  </>
+                )}
               </button>
             ))}
           </div>
@@ -780,43 +902,87 @@ export default function Login() {
               {hasWallet && (
                 <AuthMethodToggle
                   value={authMethod}
-                  onChange={(m) => { setAuthMethod(m); setError(''); }}
+                  onChange={(m) => {
+                    setAuthMethod(m);
+                    setError('');
+                  }}
                   grad={selectedRole.grad}
                 />
               )}
               <Alert msg={error} />
 
               {authMethod === 'email' || !hasWallet ? (
-                <EmailSignIn role={role} loading={loading} setLoading={setLoading} setError={setError} error="" />
+                <EmailSignIn role={role} loading={loading} setLoading={setLoading} setError={setError} error={''} />
               ) : (
-                <WalletSignIn role={role} loading={loading} setLoading={setLoading} setError={setError} error="" />
+                <WalletSignIn role={role} loading={loading} setLoading={setLoading} setError={setError} error={''} />
               )}
             </>
           )}
 
           {/* Sign Up flows */}
-          {mode === 'signup' && role === 'patient'  && <PatientSignUp setError={setError} error={error} />}
+          {mode === 'signup' && role === 'patient' && <PatientSignUp setError={setError} error={error} />}
           {mode === 'signup' && role === 'hospital' && <HospitalSignUp setError={setError} error={error} />}
-          {mode === 'signup' && role === 'doctor'   && <DoctorSignupInfo />}
-          {mode === 'signup' && role === 'admin'    && <AdminInfo />}
+          {mode === 'signup' && role === 'doctor' && <DoctorSignupInfo />}
+          {mode === 'signup' && role === 'admin' && <AdminInfo />}
         </div>
 
         {/* ── Footer hint ── */}
         <p style={{ textAlign: 'center', marginTop: 12, color: 'var(--muted)', fontSize: '0.78rem', lineHeight: 1.7 }}>
           {role === 'patient' && mode === 'login' && (
-            <>No account? <button className="btn btn-ghost btn-sm" style={{ display: 'inline', padding: '0 4px' }} onClick={() => switchMode('signup')}>Create one free →</button>&nbsp;·&nbsp; Demo: <code style={{ fontSize: '0.82rem' }}>john.doe@example.com</code></>
+            <>
+              No account?{' '}
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ display: 'inline', padding: '0 4px' }}
+                onClick={() => switchMode('signup')}
+              >
+                Create one free →
+              </button>{' '}
+              &nbsp;·&nbsp; Demo: <code style={{ fontSize: '0.82rem' }}>john.doe@example.com</code>
+            </>
           )}
           {role === 'patient' && mode === 'signup' && (
-            <>Already registered? <button className="btn btn-ghost btn-sm" style={{ display: 'inline', padding: '0 4px' }} onClick={() => switchMode('login')}>Sign In →</button></>
+            <>
+              Already registered?{' '}
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ display: 'inline', padding: '0 4px' }}
+                onClick={() => switchMode('login')}
+              >
+                Sign In →
+              </button>
+            </>
           )}
           {role === 'hospital' && mode === 'signup' && (
-            <>Already registered? <button className="btn btn-ghost btn-sm" style={{ display: 'inline', padding: '0 4px' }} onClick={() => switchMode('login')}>Sign In →</button></>
+            <>
+              Already registered?{' '}
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ display: 'inline', padding: '0 4px' }}
+                onClick={() => switchMode('login')}
+              >
+                Sign In →
+              </button>
+            </>
           )}
           {role === 'hospital' && mode === 'login' && (
-            <>New hospital? <button className="btn btn-ghost btn-sm" style={{ display: 'inline', padding: '0 4px' }} onClick={() => switchMode('signup')}>Register →</button>&nbsp;·&nbsp; Demo: <code style={{ fontSize: '0.82rem' }}>admin@citygeneral.com</code></>
+            <>
+              New hospital?{' '}
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ display: 'inline', padding: '0 4px' }}
+                onClick={() => switchMode('signup')}
+              >
+                Register →
+              </button>{' '}
+              &nbsp;·&nbsp; Demo: <code style={{ fontSize: '0.82rem' }}>admin@citygeneral.com</code>
+            </>
           )}
           {role === 'doctor' && (
-            <><b>Demo:</b> <code style={{ fontSize: '0.82rem' }}>dr.sarah.connor@citygeneral.com</code> (email) or MetaMask Hardhat #0</>
+            <>
+              <b>Demo:</b> <code style={{ fontSize: '0.82rem' }}>dr.sarah.connor@citygeneral.com</code> (email) or MetaMask
+              Hardhat #0
+            </>
           )}
           {role === 'admin' && <>Admin access is provisioned by your MedBlock operator.</>}
         </p>

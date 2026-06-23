@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     LayoutDashboard, UserPlus, Stethoscope, Users,
-    Calendar, ClipboardList, Plus, X, Search, Activity
+    Calendar, ClipboardList, Plus, X, Search, Activity,
+    TrendingUp
 } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api, getSession } from '../api';
+import { useToast } from '../components/Toast';
 
 const NAV = [
     { key: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
@@ -17,15 +19,21 @@ const NAV = [
 function useApiData(path) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const reload = () => {
+    const reload = useCallback(() => {
         setLoading(true);
         api.get(path).then(setData).catch(console.error).finally(() => setLoading(false));
-    };
-    useEffect(reload, [path]);
+    }, [path]);
+    useEffect(() => { reload(); }, [reload]);
     return { data, loading, reload };
 }
 
 function Modal({ title, onClose, children }) {
+    useEffect(() => {
+        const handler = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [onClose]);
+
     return (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
             <div className="modal anim-slide-up">
@@ -41,29 +49,40 @@ function Modal({ title, onClose, children }) {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 function Dashboard({ user }) {
-    const { data } = useApiData('/hospital/stats');
+    const { data, loading } = useApiData('/hospital/stats');
+
+    const stats = [
+        { label: 'Doctors',       value: data?.doctors,              icon: '👨‍⚕️', color: 'var(--warning)', accent: '#f59e0b', trend: 'Active staff' },
+        { label: 'Patients',      value: data?.patients,             icon: '👥', color: 'var(--accent)',  accent: '#a78bfa', trend: 'Registered' },
+        { label: 'Reports',       value: data?.reports,              icon: '📋', color: 'var(--success)', accent: '#22c55e', trend: 'Stored on IPFS' },
+        { label: 'Pending Appts', value: data?.pendingAppointments,  icon: '📅', color: 'var(--primary)', accent: '#3b82f6', trend: 'Scheduled' },
+    ];
+
     return (
         <>
             <h1 className="page-title">Hospital Dashboard</h1>
             <p className="page-subtitle">Live statistics for your hospital.</p>
 
             <div className="stat-grid" style={{ marginBottom: 24 }}>
-                <div className="stat-card">
-                    <div className="label">Doctors</div>
-                    <div className="value" style={{ color: 'var(--warning)' }}>{data?.doctors ?? '—'}</div>
-                </div>
-                <div className="stat-card">
-                    <div className="label">Patients</div>
-                    <div className="value" style={{ color: 'var(--accent)' }}>{data?.patients ?? '—'}</div>
-                </div>
-                <div className="stat-card">
-                    <div className="label">Reports</div>
-                    <div className="value" style={{ color: 'var(--success)' }}>{data?.reports ?? '—'}</div>
-                </div>
-                <div className="stat-card">
-                    <div className="label">Pending Appts</div>
-                    <div className="value" style={{ color: 'var(--primary)' }}>{data?.pendingAppointments ?? '—'}</div>
-                </div>
+                {loading
+                    ? Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="skeleton skeleton-stat" />
+                    ))
+                    : stats.map(s => (
+                        <div key={s.label} className="stat-card" style={{ '--card-accent': s.accent }}>
+                            <div className="stat-icon" style={{ background: `${s.accent}18` }}>
+                                <span style={{ fontSize: '1.1rem' }}>{s.icon}</span>
+                            </div>
+                            <div className="stat-body">
+                                <div className="label">{s.label}</div>
+                                <div className="value" style={{ color: s.color, fontSize: '1.8rem' }}>{s.value ?? '—'}</div>
+                                <div className="trend">
+                                    <TrendingUp size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />{s.trend}
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                }
             </div>
 
             {/* Hospital info card */}
@@ -80,17 +99,23 @@ function Dashboard({ user }) {
 
 // ── Doctors ───────────────────────────────────────────────────────────────────
 function DoctorsPage() {
+    const toast = useToast();
     const { data, reload } = useApiData('/hospital/doctors');
     const [show, setShow] = useState(false);
-    const [form, setForm] = useState({ firstName: '', lastName: '', walletAddress: '', specialization: '', phone: '' });
+    const [form, setForm] = useState({ firstName: '', lastName: '', walletAddress: '', specialization: '', phone: '', email: '', password: '' });
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
     const [q, setQ] = useState('');
 
     const submit = async (e) => {
         e.preventDefault(); setSaving(true); setErr('');
-        try { await api.post('/hospital/doctors', form); setShow(false); setForm({ firstName: '', lastName: '', walletAddress: '', specialization: '', phone: '' }); reload(); }
-        catch (e) { setErr(e.message); }
+        try {
+            await api.post('/hospital/doctors', form);
+            setShow(false);
+            setForm({ firstName: '', lastName: '', walletAddress: '', specialization: '', phone: '', email: '', password: '' });
+            reload();
+            toast.success(`Dr. ${form.firstName} ${form.lastName} registered successfully.`);
+        } catch (e) { setErr(e.message); }
         finally { setSaving(false); }
     };
 
@@ -114,10 +139,10 @@ function DoctorsPage() {
             </div>
             <div className="table-wrap">
                 <table>
-                    <thead><tr><th>Name</th><th>Specialization</th><th>Wallet Address</th><th>Phone</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Specialization</th><th>Email</th><th>Wallet Address</th><th>Phone</th><th>Status</th></tr></thead>
                     <tbody>
                         {filtered.length === 0 && (
-                            <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>
+                            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>
                                 {q ? 'No doctors match your search.' : 'No doctors registered yet.'}
                             </td></tr>
                         )}
@@ -125,7 +150,8 @@ function DoctorsPage() {
                             <tr key={d.id}>
                                 <td className="fw-600">{d.first_name} {d.last_name}</td>
                                 <td>{d.specialization || '—'}</td>
-                                <td style={{ fontSize: '0.76rem', color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.wallet_address}</td>
+                                <td style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>{d.email || '—'}</td>
+                                <td style={{ fontSize: '0.76rem', color: 'var(--muted)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.wallet_address || '—'}</td>
                                 <td>{d.phone || '—'}</td>
                                 <td><span className={`badge ${d.is_active ? 'badge-green' : 'badge-red'}`}>{d.is_active ? 'Active' : 'Inactive'}</span></td>
                             </tr>
@@ -135,7 +161,7 @@ function DoctorsPage() {
             </div>
 
             {show && (
-                <Modal title="Register Doctor" onClose={() => setShow(false)}>
+                <Modal title="🩺 Register Doctor" onClose={() => setShow(false)}>
                     {err && <div className="alert alert-error">{err}</div>}
                     <form onSubmit={submit}>
                         <div className="grid-2">
@@ -143,8 +169,10 @@ function DoctorsPage() {
                             <div className="form-group"><label>Last Name</label><input className="input" value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} /></div>
                             <div className="form-group"><label>Specialization</label><input className="input" value={form.specialization} onChange={e => setForm({ ...form, specialization: e.target.value })} /></div>
                             <div className="form-group"><label>Phone</label><input className="input" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
+                            <div className="form-group"><label>Login Email</label><input type="email" className="input" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
+                            <div className="form-group"><label>Password</label><input type="password" className="input" placeholder="Default: Admin@1234" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></div>
                         </div>
-                        <div className="form-group"><label>MetaMask Wallet Address *</label><input id="doc-wallet" className="input" required placeholder="0x…" value={form.walletAddress} onChange={e => setForm({ ...form, walletAddress: e.target.value })} /></div>
+                        <div className="form-group"><label>MetaMask Wallet Address</label><input id="doc-wallet" className="input" placeholder="0x… (optional)" value={form.walletAddress} onChange={e => setForm({ ...form, walletAddress: e.target.value })} /></div>
                         <div className="flex gap-2" style={{ justifyContent: 'flex-end', marginTop: 8 }}>
                             <button type="button" className="btn btn-ghost" onClick={() => setShow(false)}>Cancel</button>
                             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Register Doctor'}</button>
@@ -158,6 +186,7 @@ function DoctorsPage() {
 
 // ── Patients ──────────────────────────────────────────────────────────────────
 function PatientsPage() {
+    const toast = useToast();
     const { data, reload } = useApiData('/hospital/patients');
     const [show, setShow] = useState(false);
     const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', phone: '', dateOfBirth: '' });
@@ -167,8 +196,13 @@ function PatientsPage() {
 
     const submit = async (e) => {
         e.preventDefault(); setSaving(true); setErr('');
-        try { await api.post('/hospital/patients', form); setShow(false); setForm({ firstName: '', lastName: '', email: '', password: '', phone: '', dateOfBirth: '' }); reload(); }
-        catch (e) { setErr(e.message); }
+        try {
+            await api.post('/hospital/patients', form);
+            setShow(false);
+            setForm({ firstName: '', lastName: '', email: '', password: '', phone: '', dateOfBirth: '' });
+            reload();
+            toast.success(`Patient ${form.firstName} ${form.lastName} registered.`);
+        } catch (e) { setErr(e.message); }
         finally { setSaving(false); }
     };
 
@@ -218,7 +252,7 @@ function PatientsPage() {
             </div>
 
             {show && (
-                <Modal title="Register Patient" onClose={() => setShow(false)}>
+                <Modal title="👤 Register Patient" onClose={() => setShow(false)}>
                     {err && <div className="alert alert-error">{err}</div>}
                     <form onSubmit={submit}>
                         <div className="grid-2">
@@ -242,7 +276,7 @@ function PatientsPage() {
 
 // ── Reports ───────────────────────────────────────────────────────────────────
 function ReportsPage() {
-    const { data } = useApiData('/hospital/reports');
+    const { data, loading } = useApiData('/hospital/reports');
     return (
         <>
             <h1 className="page-title">Reports</h1>
@@ -251,10 +285,15 @@ function ReportsPage() {
                 <table>
                     <thead><tr><th>Patient</th><th>Doctor</th><th>IPFS CID</th><th>Date</th><th>Verified</th></tr></thead>
                     <tbody>
-                        {data?.reports?.length === 0 && (
+                        {loading && Array.from({ length: 3 }).map((_, i) => (
+                            <tr key={i}>{Array.from({ length: 5 }).map((_, j) => (
+                                <td key={j}><div className="skeleton skeleton-text" style={{ width: j === 0 ? '70%' : '50%', margin: 0 }} /></td>
+                            ))}</tr>
+                        ))}
+                        {!loading && data?.reports?.length === 0 && (
                             <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No reports yet.</td></tr>
                         )}
-                        {data?.reports?.map(r => (
+                        {!loading && data?.reports?.map(r => (
                             <tr key={r.id}>
                                 <td className="fw-600">{r.patient_first} {r.patient_last}</td>
                                 <td>{r.doctor_first} {r.doctor_last}</td>
@@ -351,7 +390,7 @@ export default function HospitalPortal() {
             activePage={page}
             onNav={setPage}
         >
-            <div className="anim-slide-up">{PAGE[page]}</div>
+            <div className="anim-slide-up" key={page}>{PAGE[page]}</div>
         </Shell>
     );
 }

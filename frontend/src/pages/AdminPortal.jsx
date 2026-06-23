@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     LayoutDashboard, Building2, Users, BookOpen,
-    Plus, X, Check, XCircle, TrendingUp
+    Plus, X, Check, XCircle, TrendingUp, Power, AlertTriangle
 } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api, getSession } from '../api';
+import { useToast } from '../components/Toast';
 
 const NAV = [
     { key: 'dashboard', label: 'Dashboard',  Icon: LayoutDashboard },
@@ -13,9 +14,38 @@ const NAV = [
     { key: 'logs',      label: 'Audit Logs', Icon: BookOpen },
 ];
 
-function Modal({ title, onClose, children }) {
+// ── Confirm Dialog ─────────────────────────────────────────────────────────────
+function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Confirm', danger = true }) {
     return (
-        <div className="modal-overlay">
+        <div className="confirm-overlay" onClick={e => e.target === e.currentTarget && onCancel()}>
+            <div className="confirm-box">
+                <div className="confirm-icon">
+                    <AlertTriangle size={22} color="var(--danger)" />
+                </div>
+                <div className="confirm-title">{title}</div>
+                <div className="confirm-message">{message}</div>
+                <div className="confirm-actions">
+                    <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+                    <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm}>
+                        {confirmLabel}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function Modal({ title, onClose, children }) {
+    // Close on Escape key
+    useEffect(() => {
+        const handler = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [onClose]);
+
+    return (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
             <div className="modal anim-slide-up">
                 <div className="flex items-center justify-between mb-6">
                     <div className="modal-title">{title}</div>
@@ -31,19 +61,33 @@ function useApiData(path) {
     const [data, setData]     = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError]   = useState('');
-    const reload = () => {
+    const reload = useCallback(() => {
         setLoading(true);
         api.get(path).then(setData).catch(e => setError(e.message)).finally(() => setLoading(false));
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(reload, [path]);
+    }, [path]);
+    useEffect(() => { reload(); }, [reload]);
     return { data, loading, error, reload };
+}
+
+// ── Skeleton rows for tables ───────────────────────────────────────────────────
+function TableSkeleton({ cols = 5, rows = 4 }) {
+    return (
+        <>
+            {Array.from({ length: rows }).map((_, i) => (
+                <tr key={i}>
+                    {Array.from({ length: cols }).map((_, j) => (
+                        <td key={j}><div className="skeleton skeleton-text" style={{ width: j === 0 ? '70%' : '50%', margin: 0 }} /></td>
+                    ))}
+                </tr>
+            ))}
+        </>
+    );
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 function Dashboard() {
-    const { data }       = useApiData('/admin/stats');
-    const { data: chain } = useApiData('/blockchain/status');
+    const { data, loading }       = useApiData('/admin/stats');
+    const { data: chain, loading: chainLoading } = useApiData('/blockchain/status');
 
     const stats = [
         { label: 'Hospitals', value: data?.hospitals, icon: '🏥', color: 'var(--primary)',  accent: '#3b82f6', trend: '+1 this month' },
@@ -58,22 +102,29 @@ function Dashboard() {
             <p className="page-subtitle">Platform-wide statistics and blockchain status</p>
 
             <div className="stat-grid">
-                {stats.map(s => (
-                    <div key={s.label} className="stat-card" style={{ '--card-accent': s.accent }}>
-                        <div className="stat-icon" style={{ background: `${s.accent}18` }}>
-                            <span style={{ fontSize: '1.15rem' }}>{s.icon}</span>
+                {loading
+                    ? Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="skeleton skeleton-stat" />
+                    ))
+                    : stats.map(s => (
+                        <div key={s.label} className="stat-card" style={{ '--card-accent': s.accent }}>
+                            <div className="stat-icon" style={{ background: `${s.accent}18` }}>
+                                <span style={{ fontSize: '1.15rem' }}>{s.icon}</span>
+                            </div>
+                            <div className="stat-body">
+                                <div className="label">{s.label}</div>
+                                <div className="value" style={{ color: s.color }}>{s.value ?? '—'}</div>
+                                <div className="trend"><TrendingUp size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />{s.trend}</div>
+                            </div>
                         </div>
-                        <div className="stat-body">
-                            <div className="label">{s.label}</div>
-                            <div className="value" style={{ color: s.color }}>{s.value ?? '—'}</div>
-                            <div className="trend"><TrendingUp size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />{s.trend}</div>
-                        </div>
-                    </div>
-                ))}
+                    ))
+                }
             </div>
 
             {/* Blockchain Status */}
-            {chain && (
+            {chainLoading ? (
+                <div className="skeleton" style={{ height: 90, borderRadius: 14 }} />
+            ) : chain && (
                 <div className="card" style={{ borderLeft: `3px solid ${chain.ipfsTier === 'simulated' ? 'var(--warning)' : chain.ipfsTier === 'local' ? 'var(--success)' : 'var(--primary)'}` }}>
                     <div style={{ fontWeight: 700, marginBottom: 10, fontSize: '0.95rem' }}>⛓️ Blockchain / IPFS Status</div>
                     <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
@@ -91,6 +142,12 @@ function Dashboard() {
                             <div style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Uptime</div>
                             <span style={{ fontWeight: 600 }}>{chain.uptime ? `${Math.floor(chain.uptime / 60)}m` : '—'}</span>
                         </div>
+                        {chain.lastCids?.length > 0 && (
+                            <div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Last CID</div>
+                                <code style={{ fontSize: '0.78rem', color: 'var(--primary)' }}>{chain.lastCids[0].cid?.slice(0, 20)}…</code>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -100,11 +157,13 @@ function Dashboard() {
 
 // ── Hospitals ─────────────────────────────────────────────────────────────────
 function HospitalsPage() {
-    const { data, reload } = useApiData('/admin/hospitals');
+    const toast = useToast();
+    const { data, loading, reload } = useApiData('/admin/hospitals');
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState({ name: '', city: '', address: '', email: '', phone: '', password: '' });
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
+    const [confirm, setConfirm] = useState(null); // { hospitalId, name, activate }
 
     const submit = async (e) => {
         e.preventDefault(); setSaving(true); setErr('');
@@ -113,8 +172,34 @@ function HospitalsPage() {
             setShowModal(false);
             setForm({ name: '', city: '', address: '', email: '', phone: '', password: '' });
             reload();
+            toast.success(`Hospital "${form.name}" created successfully.`);
         } catch (e) { setErr(e.message); }
         finally { setSaving(false); }
+    };
+
+    const handleToggle = (h) => {
+        setConfirm({
+            hospitalId: h.id,
+            name: h.name,
+            activate: !h.is_active,
+        });
+    };
+
+    const executeToggle = async () => {
+        const { hospitalId, name, activate } = confirm;
+        setConfirm(null);
+        try {
+            if (activate) {
+                await api.put(`/admin/hospitals/${hospitalId}`, { is_active: true });
+                toast.success(`${name} has been reactivated.`);
+            } else {
+                await api.delete(`/admin/hospitals/${hospitalId}`);
+                toast.warning(`${name} has been deactivated.`);
+            }
+            reload();
+        } catch (e) {
+            toast.error('Action failed: ' + e.message);
+        }
     };
 
     return (
@@ -133,7 +218,8 @@ function HospitalsPage() {
                 <table>
                     <thead><tr><th>Name</th><th>City</th><th>Email</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody>
-                        {data?.hospitals?.map(h => (
+                        {loading && <TableSkeleton cols={6} />}
+                        {!loading && data?.hospitals?.map(h => (
                             <tr key={h.id}>
                                 <td className="fw-600">{h.name}</td>
                                 <td>{h.city || '—'}</td>
@@ -141,9 +227,23 @@ function HospitalsPage() {
                                 <td>{h.phone || '—'}</td>
                                 <td><span className={`badge ${h.is_active ? 'badge-green' : 'badge-red'}`}>{h.is_active ? 'Active' : 'Inactive'}</span></td>
                                 <td>
-                                    <button className="btn btn-ghost btn-sm" onClick={() => api.delete(`/admin/hospitals/${h.id}`).then(reload)}>
-                                        <XCircle size={13} /> Deactivate
-                                    </button>
+                                    {h.is_active ? (
+                                        <button
+                                            className="btn btn-ghost btn-sm"
+                                            title="Deactivate this hospital"
+                                            onClick={() => handleToggle(h)}
+                                        >
+                                            <XCircle size={13} /> Deactivate
+                                        </button>
+                                    ) : (
+                                        <button
+                                            className="btn btn-success btn-sm"
+                                            title="Reactivate this hospital"
+                                            onClick={() => handleToggle(h)}
+                                        >
+                                            <Power size={13} /> Activate
+                                        </button>
+                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -170,18 +270,45 @@ function HospitalsPage() {
                     </form>
                 </Modal>
             )}
+
+            {confirm && (
+                <ConfirmDialog
+                    title={confirm.activate ? 'Reactivate Hospital?' : 'Deactivate Hospital?'}
+                    message={confirm.activate
+                        ? `Are you sure you want to reactivate "${confirm.name}"? Their staff will regain access.`
+                        : `Are you sure you want to deactivate "${confirm.name}"? All associated staff logins will be blocked.`
+                    }
+                    confirmLabel={confirm.activate ? 'Reactivate' : 'Deactivate'}
+                    danger={!confirm.activate}
+                    onConfirm={executeToggle}
+                    onCancel={() => setConfirm(null)}
+                />
+            )}
         </>
     );
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 function UsersPage() {
+    const toast = useToast();
     const [roleFilter, setRoleFilter] = useState('');
-    const { data, reload } = useApiData(`/admin/users${roleFilter ? `?role=${roleFilter}` : ''}`);
+    const { data, loading, reload } = useApiData(`/admin/users${roleFilter ? `?role=${roleFilter}` : ''}`);
+    const [confirm, setConfirm] = useState(null); // { id, name, current }
 
-    const toggle = async (id, current) => {
-        await api.patch(`/admin/users/${id}/status`, { is_active: !current });
-        reload();
+    const handleToggle = (u) => {
+        setConfirm({ id: u.id, name: `${u.first_name} ${u.last_name}`, current: u.is_active });
+    };
+
+    const executeToggle = async () => {
+        const { id, name, current } = confirm;
+        setConfirm(null);
+        try {
+            await api.patch(`/admin/users/${id}/status`, { is_active: !current });
+            toast[current ? 'warning' : 'success'](`${name} has been ${current ? 'deactivated' : 'activated'}.`);
+            reload();
+        } catch (e) {
+            toast.error('Failed: ' + e.message);
+        }
     };
 
     const roleBadge = (role) => {
@@ -208,7 +335,8 @@ function UsersPage() {
                 <table>
                     <thead><tr><th>Name</th><th>Email / Wallet</th><th>Role</th><th>Status</th><th>Since</th><th>Actions</th></tr></thead>
                     <tbody>
-                        {data?.users?.map(u => (
+                        {loading && <TableSkeleton cols={6} />}
+                        {!loading && data?.users?.map(u => (
                             <tr key={u.id}>
                                 <td className="fw-600">{u.first_name} {u.last_name}</td>
                                 <td style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>{u.email || u.wallet_address || '—'}</td>
@@ -216,7 +344,7 @@ function UsersPage() {
                                 <td><span className={`badge ${u.is_active ? 'badge-green' : 'badge-red'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
                                 <td style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>{new Date(u.created_at).toLocaleDateString()}</td>
                                 <td>
-                                    <button className={`btn btn-sm ${u.is_active ? 'btn-ghost' : 'btn-success'}`} onClick={() => toggle(u.id, u.is_active)}>
+                                    <button className={`btn btn-sm ${u.is_active ? 'btn-ghost' : 'btn-success'}`} onClick={() => handleToggle(u)}>
                                         {u.is_active ? <><XCircle size={12} /> Deactivate</> : <><Check size={12} /> Activate</>}
                                     </button>
                                 </td>
@@ -225,6 +353,20 @@ function UsersPage() {
                     </tbody>
                 </table>
             </div>
+
+            {confirm && (
+                <ConfirmDialog
+                    title={confirm.current ? 'Deactivate User?' : 'Activate User?'}
+                    message={confirm.current
+                        ? `Deactivate "${confirm.name}"? They will lose portal access immediately.`
+                        : `Restore access for "${confirm.name}"?`
+                    }
+                    confirmLabel={confirm.current ? 'Deactivate' : 'Activate'}
+                    danger={confirm.current}
+                    onConfirm={executeToggle}
+                    onCancel={() => setConfirm(null)}
+                />
+            )}
         </>
     );
 }
@@ -245,7 +387,7 @@ const ACTION_STYLE = {
 };
 
 function AuditPage() {
-    const { data } = useApiData('/admin/audit-logs');
+    const { data, loading } = useApiData('/admin/audit-logs');
     return (
         <>
             <h1 className="page-title">Audit Logs</h1>
@@ -254,7 +396,8 @@ function AuditPage() {
                 <table>
                     <thead><tr><th>Actor</th><th>Role</th><th>Action</th><th>Target</th><th>Time</th></tr></thead>
                     <tbody>
-                        {data?.logs?.map(l => {
+                        {loading && <TableSkeleton cols={5} rows={6} />}
+                        {!loading && data?.logs?.map(l => {
                             const style = ACTION_STYLE[l.action] || { cls: 'badge-purple', label: l.action };
                             return (
                                 <tr key={l.id}>
@@ -297,7 +440,7 @@ export default function AdminPortal() {
             activePage={page}
             onNav={setPage}
         >
-            <div className="anim-slide-up">{PAGE[page]}</div>
+            <div className="anim-slide-up" key={page}>{PAGE[page]}</div>
         </Shell>
     );
 }

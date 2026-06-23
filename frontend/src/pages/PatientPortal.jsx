@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     ClipboardList, Calendar, Plus, X, ShieldCheck, Pill,
     AlertTriangle, ArrowRight, Activity, User, Mail, ExternalLink, Copy, Check
 } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api, getSession } from '../api';
+import { useToast } from '../components/Toast';
 
 const NAV = [
     { key: 'overview',      label: 'Overview',       Icon: Activity },
@@ -12,15 +13,24 @@ const NAV = [
     { key: 'appointments',  label: 'Appointments',   Icon: Calendar },
 ];
 
+// ── Fixed useApiData — stable reload via useCallback ─────────────────────────
 function useApiData(path) {
     const [data, setData] = useState(null);
-    const reload = () => { api.get(path).then(setData).catch(console.error); };
+    const reload = useCallback(() => {
+        api.get(path).then(setData).catch(console.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { reload(); }, [path]);
+    }, [path]);
+    useEffect(() => { reload(); }, [reload]);
     return { data, reload };
 }
 
 function Modal({ title, onClose, children }) {
+    useEffect(() => {
+        const handler = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [onClose]);
+
     return (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
             <div className="modal anim-slide-up">
@@ -279,7 +289,13 @@ function RecordsPage() {
         <>
             <h1 className="page-title">My Health Records</h1>
             <p className="page-subtitle">Click any record to view the full AI report secured on IPFS + Blockchain.</p>
-            {!data && <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }}>Loading records…</div>}
+            {!data && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="skeleton" style={{ height: 100, borderRadius: 12 }} />
+                    ))}
+                </div>
+            )}
             {records.length === 0 && data && (
                 <div className="card" style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>
                     <div style={{ fontSize: '2rem', marginBottom: 10 }}>📂</div>
@@ -293,22 +309,40 @@ function RecordsPage() {
 
 // ── Appointments Page ─────────────────────────────────────────────────────────
 function AppointmentsPage() {
+    const toast = useToast();
     const { data, reload } = useApiData('/visits/appointments');
+    // Fetch live doctors from API instead of hardcoded list
+    const { data: doctorsData } = useApiData('/hospital/patients');
+    const [allDoctors, setAllDoctors] = useState([]);
     const [show, setShow]  = useState(false);
     const [form, setForm]  = useState({ doctorId: '', hospitalId: '', appointmentDate: '', reason: '' });
     const [saving, setSaving] = useState(false);
     const [err, setErr]    = useState('');
 
+    // Fetch all doctors from the public-visible hospital doctors list
+    useEffect(() => {
+        api.get('/hospital/patients').catch(() => null); // keep session alive
+        // Fetch doctors via a separate direct call
+        fetch('http://localhost:5001/api/hospital/doctors', {
+            headers: { Authorization: `Bearer ${localStorage.getItem('mb_token')}` }
+        })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d?.doctors) setAllDoctors(d.doctors); })
+            .catch(() => {});
+    }, []);
+
+    // Fallback to well-known demo doctors if API returns nothing
     const DEMO_DOCTORS = [
-        { id: 5, name: 'Dr. Sarah Connor',  specialization: 'General Practice',     hospitalId: 1, hospitalName: 'City General Hospital' },
-        { id: 6, name: 'Dr. Rahul Verma',   specialization: 'Cardiologist',          hospitalId: 1, hospitalName: 'City General Hospital' },
-        { id: 7, name: 'Dr. Priya Sharma',  specialization: 'Dermatologist',         hospitalId: 2, hospitalName: 'Oakwood Medical Centre' },
-        { id: 8, name: 'Dr. Aditya Nair',   specialization: 'Orthopaedic Surgeon',   hospitalId: 3, hospitalName: 'Apollo Sunrise Hospital' },
+        { id: 5, first_name: 'Dr. Sarah',  last_name: 'Connor',  specialization: 'General Practice',   hospital_id: 1, hospital_name: 'City General Hospital' },
+        { id: 6, first_name: 'Dr. Rahul',  last_name: 'Verma',   specialization: 'Cardiologist',        hospital_id: 1, hospital_name: 'City General Hospital' },
+        { id: 7, first_name: 'Dr. Priya',  last_name: 'Sharma',  specialization: 'Dermatologist',       hospital_id: 2, hospital_name: 'Oakwood Medical Centre' },
+        { id: 8, first_name: 'Dr. Aditya', last_name: 'Nair',    specialization: 'Orthopaedic Surgeon', hospital_id: 3, hospital_name: 'Apollo Sunrise Hospital' },
     ];
+    const doctors = allDoctors.length > 0 ? allDoctors : DEMO_DOCTORS;
 
     const handleDoctorSelect = (e) => {
-        const doc = DEMO_DOCTORS.find(d => d.id === Number(e.target.value));
-        if (doc) setForm(f => ({ ...f, doctorId: String(doc.id), hospitalId: String(doc.hospitalId) }));
+        const doc = doctors.find(d => d.id === Number(e.target.value));
+        if (doc) setForm(f => ({ ...f, doctorId: String(doc.id), hospitalId: String(doc.hospital_id) }));
         else setForm(f => ({ ...f, doctorId: '', hospitalId: '' }));
     };
 
@@ -316,7 +350,10 @@ function AppointmentsPage() {
         e.preventDefault(); setSaving(true); setErr('');
         try {
             await api.post('/visits/appointments', form);
-            setShow(false); setForm({ doctorId: '', hospitalId: '', appointmentDate: '', reason: '' }); reload();
+            setShow(false);
+            setForm({ doctorId: '', hospitalId: '', appointmentDate: '', reason: '' });
+            reload();
+            toast.success('Appointment booked successfully!');
         } catch (e) { setErr(e.message); }
         finally { setSaving(false); }
     };
@@ -390,15 +427,19 @@ function AppointmentsPage() {
                             <label>Select Doctor *</label>
                             <select className="input" required value={form.doctorId} onChange={handleDoctorSelect}>
                                 <option value="">— Choose a Doctor —</option>
-                                {DEMO_DOCTORS.map(d => (
-                                    <option key={d.id} value={d.id}>{d.name} — {d.specialization} ({d.hospitalName})</option>
+                                {doctors.map(d => (
+                                    <option key={d.id} value={d.id}>
+                                        {d.first_name} {d.last_name} — {d.specialization} ({d.hospital_name || `Hospital #${d.hospital_id}`})
+                                    </option>
                                 ))}
                             </select>
                         </div>
                         {form.hospitalId && (
                             <div className="form-group">
                                 <label>Hospital</label>
-                                <input className="input" readOnly value={DEMO_DOCTORS.find(d => d.id === Number(form.doctorId))?.hospitalName || ''} style={{ opacity: 0.7 }} />
+                                <input className="input" readOnly
+                                    value={doctors.find(d => d.id === Number(form.doctorId))?.hospital_name || `Hospital #${form.hospitalId}`}
+                                    style={{ opacity: 0.7 }} />
                             </div>
                         )}
                         <div className="form-group">
@@ -443,7 +484,7 @@ export default function PatientPortal() {
             activePage={page}
             onNav={setPage}
         >
-            <div className="anim-slide-up">{PAGE[page]}</div>
+            <div className="anim-slide-up" key={page}>{PAGE[page]}</div>
         </Shell>
     );
 }
